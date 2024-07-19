@@ -645,8 +645,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
       if(result != RUSTLS_RESULT_OK) {
         failf(data, "rustls: failed to parse trusted certificates from blob");
         rustls_root_cert_store_builder_free(roots_builder);
-        rustls_client_config_free(
-          rustls_client_config_builder_build(config_builder));
+        rustls_client_config_builder_free(config_builder);
         return CURLE_SSL_CACERT_BADFILE;
       }
     }
@@ -657,8 +656,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
       if(result != RUSTLS_RESULT_OK) {
         failf(data, "rustls: failed to load trusted certificates");
         rustls_root_cert_store_builder_free(roots_builder);
-        rustls_client_config_free(
-          rustls_client_config_builder_build(config_builder));
+        rustls_client_config_builder_free(config_builder);
         return CURLE_SSL_CACERT_BADFILE;
       }
     }
@@ -667,8 +665,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
     rustls_root_cert_store_builder_free(roots_builder);
     if(result != RUSTLS_RESULT_OK) {
       failf(data, "rustls: failed to load trusted certificates");
-      rustls_client_config_free(
-        rustls_client_config_builder_build(config_builder));
+      rustls_client_config_builder_free(config_builder);
       return CURLE_SSL_CACERT_BADFILE;
     }
 
@@ -703,8 +700,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
     if(result != RUSTLS_RESULT_OK) {
       failf(data, "rustls: failed to load trusted certificates");
       rustls_server_cert_verifier_free(server_cert_verifier);
-      rustls_client_config_free(
-        rustls_client_config_builder_build(config_builder));
+      rustls_client_config_builder_free(config_builder);
       return CURLE_SSL_CACERT_BADFILE;
     }
 
