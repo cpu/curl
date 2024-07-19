@@ -523,7 +523,13 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
                                                      server_cert_verifier);
   }
 
-  backend->config = rustls_client_config_builder_build(config_builder);
+  result = rustls_client_config_builder_build(
+    config_builder, &backend->config);
+  if(result != RUSTLS_RESULT_OK) {
+    failf(data, "rustls: failed to build client config");
+    rustls_client_config_free(backend->config);
+    return CURLE_SSL_ENGINE_INITFAILED;
+  }
   DEBUGASSERT(rconn == NULL);
   result = rustls_client_connection_new(backend->config,
                                         connssl->peer.hostname, &rconn);
