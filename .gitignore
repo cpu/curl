@@ -22,6 +22,7 @@
 .project
 .settings
 /.vs
+/.idea
 /bld/
 /build/
 /builds/
