@@ -841,6 +841,9 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
   }
 
   if(ECH_ENABLED(data)) {
+    unsigned char *ech_config = NULL;
+    size_t ech_config_len = 0;
+
     if(data->set.str[STRING_ECH_PUBLIC]) {
       failf(data, "rustls: ECH outername not supported with rustls");
       rustls_client_config_builder_free(config_builder);
@@ -857,12 +860,39 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
     //   The `enable_ech()` functions will error if the config includes anything
     //   other than TLS 1.3.
 
+    // TODO(@cpu): consider CURLECH_HARD ?
+
     if(data->set.tls_ech == CURLECH_GREASE) {
       result = rustls_client_config_builder_enable_ech_grease(config_builder, hpke);
       if (result != RUSTLS_RESULT_OK)
       {
         rustls_error(result, errorbuf, sizeof(errorbuf), &errorlen);
         failf(data, "rustls: failed to configure ECH GREASE: %.*s", (int)errorlen,
+              errorbuf);
+        rustls_client_config_builder_free(config_builder);
+        return CURLE_SSL_CONNECT_ERROR;
+      }
+    } else if(data->set.tls_ech & CURLECH_CLA_CFG
+       && data->set.str[STRING_ECH_CONFIG]) {
+      const char *b64 = data->set.str[STRING_ECH_CONFIG];
+      size_t decode_result;
+      if(!b64) {
+        infof(data, "rustls: ECHConfig from command line empty");
+        rustls_client_config_builder_free(config_builder);
+        return CURLE_SSL_CONNECT_ERROR;
+      }
+      ech_config_len = 2 * strlen(b64);
+      decode_result = Curl_base64_decode(b64, &ech_config, &ech_config_len);
+      if(decode_result || !ech_config) {
+        infof(data, "rustls: cannot base64 decode ECHConfig from command line");
+        rustls_client_config_builder_free(config_builder);
+        return CURLE_SSL_CONNECT_ERROR;
+      }
+      result = rustls_client_config_builder_enable_ech(config_builder, ech_config, ech_config_len, hpke);
+      if (result != RUSTLS_RESULT_OK)
+      {
+        rustls_error(result, errorbuf, sizeof(errorbuf), &errorlen);
+        failf(data, "rustls: failed to configure ECH: %.*s", (int)errorlen,
               errorbuf);
         rustls_client_config_builder_free(config_builder);
         return CURLE_SSL_CONNECT_ERROR;
