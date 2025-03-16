@@ -817,12 +817,22 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
       rustls_client_config_builder_free(config_builder);
       return CURLE_SSL_CERTPROBLEM;
     }
+    result = rustls_certified_key_keys_match(certified_key);
+    if(result != RUSTLS_RESULT_OK) {
+      rustls_error(result, errorbuf, sizeof(errorbuf), &errorlen);
+      failf(data, "rustls: client certificate and keypair files do not match: %.*s",
+            (int)errorlen, errorbuf);
+      rustls_certified_key_free(certified_key);
+      rustls_client_config_builder_free(config_builder);
+      return CURLE_SSL_CERTPROBLEM;
+    }
     result = rustls_client_config_builder_set_certified_key(
       config_builder, &certified_key, 1);
     if(result != RUSTLS_RESULT_OK) {
       rustls_error(result, errorbuf, sizeof(errorbuf), &errorlen);
       failf(data, "rustls: failed to set certified key: %.*s", (int)errorlen,
             errorbuf);
+      rustls_certified_key_free(certified_key);
       rustls_client_config_builder_free(config_builder);
       return CURLE_SSL_CERTPROBLEM;
     }
