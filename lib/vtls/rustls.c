@@ -553,6 +553,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
   struct rustls_root_cert_store_builder *roots_builder = NULL;
   struct rustls_web_pki_server_cert_verifier_builder *verifier_builder = NULL;
   struct rustls_server_cert_verifier *server_cert_verifier = NULL;
+  const rustls_hpke *hpke = rustls_supported_hpke();
   const struct curl_blob *ca_info_blob = conn_config->ca_info_blob;
   const char * const ssl_cafile =
     /* CURLOPT_CAINFO_BLOB overrides CURLOPT_CAINFO */
@@ -837,6 +838,36 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
       return CURLE_SSL_CERTPROBLEM;
     }
     rustls_certified_key_free(certified_key);
+  }
+
+  if(ECH_ENABLED(data)) {
+    if(data->set.str[STRING_ECH_PUBLIC]) {
+      failf(data, "rustls: ECH outername not supported with rustls");
+      rustls_client_config_builder_free(config_builder);
+      return CURLE_SSL_CONNECT_ERROR;
+    }
+
+    if(hpke == NULL){
+      failf(data, "rustls: ECH unavailable, rustls-ffi built without HPKE compatible crypto provider");
+      rustls_client_config_builder_free(config_builder);
+      return CURLE_SSL_CONNECT_ERROR;
+    }
+
+    // TODO(@cpu): potentially adjust default protocols to exclude TLS 1.2?
+    //   The `enable_ech()` functions will error if the config includes anything
+    //   other than TLS 1.3.
+
+    if(data->set.tls_ech == CURLECH_GREASE) {
+      result = rustls_client_config_builder_enable_ech_grease(config_builder, hpke);
+      if (result != RUSTLS_RESULT_OK)
+      {
+        rustls_error(result, errorbuf, sizeof(errorbuf), &errorlen);
+        failf(data, "rustls: failed to configure ECH GREASE: %.*s", (int)errorlen,
+              errorbuf);
+        rustls_client_config_builder_free(config_builder);
+        return CURLE_SSL_CONNECT_ERROR;
+      }
+    }
   }
 
   result = rustls_client_config_builder_build(
@@ -1147,7 +1178,8 @@ const struct Curl_ssl Curl_ssl_rustls = {
   SSLSUPP_HTTPS_PROXY |
   SSLSUPP_CIPHER_LIST |
   SSLSUPP_TLS13_CIPHERSUITES |
-  SSLSUPP_CERTINFO,
+  SSLSUPP_CERTINFO |
+  SSLSUPP_ECH,
   sizeof(struct rustls_ssl_backend_data),
 
   NULL,                            /* init */
