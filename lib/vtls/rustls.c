@@ -553,7 +553,6 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
   struct rustls_root_cert_store_builder *roots_builder = NULL;
   struct rustls_web_pki_server_cert_verifier_builder *verifier_builder = NULL;
   struct rustls_server_cert_verifier *server_cert_verifier = NULL;
-  const rustls_hpke *hpke = rustls_supported_hpke();
   const struct curl_blob *ca_info_blob = conn_config->ca_info_blob;
   const char * const ssl_cafile =
     /* CURLOPT_CAINFO_BLOB overrides CURLOPT_CAINFO */
@@ -841,9 +840,11 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
     rustls_certified_key_free(certified_key);
   }
 
+#ifdef USE_ECH
   if(ECH_ENABLED(data)) {
     unsigned char *ech_config = NULL;
     size_t ech_config_len = 0;
+    const rustls_hpke *hpke = rustls_supported_hpke();
 
     if(data->set.str[STRING_ECH_PUBLIC]) {
       failf(data, "rustls: ECH outername not supported with rustls");
@@ -953,6 +954,7 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
       infof(data, "rustls: using ECHConfig from DoH HTTPS RR");
     }
   }
+#endif /* USE_ECH */
 
   result = rustls_client_config_builder_build(
     config_builder,
