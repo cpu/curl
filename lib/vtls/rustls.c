@@ -821,7 +821,8 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
     result = rustls_certified_key_keys_match(certified_key);
     if(result != RUSTLS_RESULT_OK) {
       rustls_error(result, errorbuf, sizeof(errorbuf), &errorlen);
-      failf(data, "rustls: client certificate and keypair files do not match: %.*s",
+      failf(data,
+        "rustls: client certificate and keypair files do not match: %.*s",
             (int)errorlen, errorbuf);
       rustls_certified_key_free(certified_key);
       rustls_client_config_builder_free(config_builder);
@@ -850,29 +851,38 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
       return CURLE_SSL_CONNECT_ERROR;
     }
 
-    if(hpke == NULL){
-      failf(data, "rustls: ECH unavailable, rustls-ffi built without HPKE compatible crypto provider");
+    if(!hpke) {
+      failf(data,
+        "rustls: ECH unavailable, rustls-ffi built without "
+        "HPKE compatible crypto provider");
       rustls_client_config_builder_free(config_builder);
       return CURLE_SSL_CONNECT_ERROR;
     }
 
-    // TODO(@cpu): potentially adjust default protocols to exclude TLS 1.2?
-    //   The `enable_ech()` functions will error if the config includes anything
-    //   other than TLS 1.3.
+    /* TODO(@cpu): potentially adjust default protocols to exclude
+     * TLS 1.2 ?
+     * The `enable_ech()` functions will error if the config includes
+     * anything other than TLS 1.3.
+     */
 
-    // TODO(@cpu): consider CURLECH_HARD ?
+    /* TODO(@cpu): consider CURLECH_HARD ? */
 
     if(data->set.tls_ech == CURLECH_GREASE) {
-      result = rustls_client_config_builder_enable_ech_grease(config_builder, hpke);
-      if (result != RUSTLS_RESULT_OK)
-      {
+      result = rustls_client_config_builder_enable_ech_grease(
+        config_builder,
+        hpke);
+      if(result != RUSTLS_RESULT_OK) {
         rustls_error(result, errorbuf, sizeof(errorbuf), &errorlen);
-        failf(data, "rustls: failed to configure ECH GREASE: %.*s", (int)errorlen,
-              errorbuf);
+        failf(data,
+          "rustls: failed to configure ECH GREASE: %.*s",
+            (int)errorlen,
+            errorbuf);
         rustls_client_config_builder_free(config_builder);
         return CURLE_SSL_CONNECT_ERROR;
       }
-    } else if(data->set.tls_ech & CURLECH_CLA_CFG
+      infof(data, "rustls: using ECH GREASE");
+    }
+    else if(data->set.tls_ech & CURLECH_CLA_CFG
        && data->set.str[STRING_ECH_CONFIG]) {
       const char *b64 = data->set.str[STRING_ECH_CONFIG];
       size_t decode_result;
@@ -884,19 +894,63 @@ cr_init_backend(struct Curl_cfilter *cf, struct Curl_easy *data,
       ech_config_len = 2 * strlen(b64);
       decode_result = Curl_base64_decode(b64, &ech_config, &ech_config_len);
       if(decode_result || !ech_config) {
-        infof(data, "rustls: cannot base64 decode ECHConfig from command line");
+        infof(data,
+          "rustls: cannot base64 decode ECHConfig from command line");
         rustls_client_config_builder_free(config_builder);
         return CURLE_SSL_CONNECT_ERROR;
       }
-      result = rustls_client_config_builder_enable_ech(config_builder, ech_config, ech_config_len, hpke);
-      if (result != RUSTLS_RESULT_OK)
-      {
+      result = rustls_client_config_builder_enable_ech(
+        config_builder,
+        ech_config,
+        ech_config_len,
+        hpke);
+      if(result != RUSTLS_RESULT_OK) {
         rustls_error(result, errorbuf, sizeof(errorbuf), &errorlen);
         failf(data, "rustls: failed to configure ECH: %.*s", (int)errorlen,
               errorbuf);
         rustls_client_config_builder_free(config_builder);
         return CURLE_SSL_CONNECT_ERROR;
       }
+      infof(data, "rustls: using ECHConfig from CLI arg");
+    }
+    else {
+      struct Curl_dns_entry *dns = NULL;
+      struct Curl_https_rrinfo *rinfo = NULL;
+      if(connssl->peer.hostname) {
+        dns = Curl_fetch_addr(
+          data,
+          connssl->peer.hostname,
+          connssl->peer.port);
+      }
+      if(!dns) {
+        failf(data, "rustls: ECH requested but no DNS info available");
+        rustls_client_config_builder_free(config_builder);
+        return CURLE_SSL_CONNECT_ERROR;
+      }
+      rinfo = dns->hinfo;
+      if(!rinfo || !rinfo->echconfiglist) {
+        failf(data, "rustls: ECH requested but no ECHConfig available");
+        Curl_resolv_unlink(data, &dns);
+        rustls_client_config_builder_free(config_builder);
+        return CURLE_SSL_CONNECT_ERROR;
+      }
+      ech_config = rinfo->echconfiglist;
+      ech_config_len = rinfo->echconfiglist_len;
+      result = rustls_client_config_builder_enable_ech(
+        config_builder,
+        ech_config,
+        ech_config_len,
+        hpke);
+      if(result != RUSTLS_RESULT_OK) {
+        rustls_error(result, errorbuf, sizeof(errorbuf), &errorlen);
+        failf(data, "rustls: failed to configure ECH: %.*s", (int)errorlen,
+              errorbuf);
+        Curl_resolv_unlink(data, &dns);
+        rustls_client_config_builder_free(config_builder);
+        return CURLE_SSL_CONNECT_ERROR;
+      }
+      Curl_resolv_unlink(data, &dns);
+      infof(data, "rustls: using ECHConfig from DoH HTTPS RR");
     }
   }
 
